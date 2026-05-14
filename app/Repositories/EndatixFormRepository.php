@@ -9,81 +9,70 @@ use Illuminate\Support\Facades\Log;
 
 class EndatixFormRepository
 {
-    public $data = [
-        'Events' => [
-            'FormCreated' => [
-                'IsEnabled' => true,
-                'WebHookEndpoints' => [
-                    [
-                        'Url' => "https://cc8f-115-246-220-132.ngrok-free.app/endatix-response",
-                        'Authentication' => [
-                            'Type' => 'None',
-                        ],
-                    ],
-                ],
-            ],
-            'FormUpdated' => [
-                'IsEnabled' => true,
-                'WebHookEndpoints' => [
-                    [
-                        'Url' => "https://cc8f-115-246-220-132.ngrok-free.app/endatix-response",
-                        'Authentication' => [
-                            'Type' => 'None',
-                        ],
-                    ],
-                ],
-            ],
-            'SubmissionCompleted' => [
-                'IsEnabled' => true,
-                'WebHookEndpoints' => [
-                    [
-                        'Url' => "https://cc8f-115-246-220-132.ngrok-free.app/endatix-response",
-                        'Authentication' => [
-                            'Type' => 'None',
-                        ],
-                    ],
-                ],
-            ],
-        ],
-    ];
-
-    public function login(Request $request,string $method,string $url): mixed
+    public function getWebhookConfig(): array
     {
-        $response = Http::$method(env("ENDATIX_URL").$url,[
-            "email"=>env("ENDATIX_EMAIL"),
-            "password"=>env("ENDATIX_PASSWORD")
+        $endpoint = [
+            'Url' => env('ENDATIX_WEBHOOK_URL'),
+            'Authentication' => ['Type' => 'None'],
+        ];
+
+        return [
+            'Events' => [
+                'FormCreated' => [
+                    'IsEnabled' => true,
+                    'WebHookEndpoints' => [$endpoint],
+                ],
+                'FormUpdated' => [
+                    'IsEnabled' => true,
+                    'WebHookEndpoints' => [$endpoint],
+                ],
+                'SubmissionCompleted' => [
+                    'IsEnabled' => true,
+                    'WebHookEndpoints' => [$endpoint],
+                ],
+            ],
+        ];
+    }
+
+    public function login(Request $request, string $method, string $url): mixed
+    {
+        return Http::$method(env("ENDATIX_URL").$url, [
+            "email" => env("ENDATIX_EMAIL"),
+            "password" => env("ENDATIX_PASSWORD"),
         ]);
-
-        return $response;
     }
 
-    public function refreshToken(Request $request,string $method,string $url,string $refreshToken)
+    public function refreshToken(Request $request, string $method, string $url, string $refreshToken)
     {
-        $response = Http::withToken($refreshToken)->acceptJson()->$method(env("ENDATIX_URL").$url);
-        return $response;
+        return Http::withToken($refreshToken)->acceptJson()->$method(env("ENDATIX_URL").$url);
     }
 
-    public function endatixApi(Request $request,string $method,string $url,string $accessToken)
+    public function endatixApi(Request $request, string $method, string $url, string $accessToken)
     {
-        $response = Http::withToken($accessToken)->acceptJson()->$method(env("ENDATIX_URL").$url);
-        // $response=$this->webhooksCall($response,$accessToken);
-        return $response;
+        return Http::withToken($accessToken)->acceptJson()->$method(env("ENDATIX_URL").$url);
     }
 
-    public function webhooksCall($response,$accessToken=null)
+    public function registerWebhooks(array $forms, string $accessToken): void
     {
-        if($response->ok())
-        {
-            foreach($response->json() as $form)
-            {
-                $payload=[
-                    "webHookSettingsJson"=>json_encode($this->data)
-                ];
-                $webhooksResponse = Http::withToken($accessToken)->acceptJson()->patch(env("ENDATIX_URL")."/forms/".$form['id'],$payload);
-                // Log::info(['webhooks'=>$webhooksResponse->json()]);
+        $webhookUrl = env('ENDATIX_WEBHOOK_URL');
+        if (!$webhookUrl) {
+            return;
+        }
+
+        $payload = ['webHookSettingsJson' => json_encode($this->getWebhookConfig())];
+
+        foreach ($forms as $form) {
+            $response = Http::withToken($accessToken)
+                ->acceptJson()
+                ->patch(env("ENDATIX_URL")."/forms/".$form['id'], $payload);
+
+            if (!$response->ok()) {
+                Log::warning('Webhook registration failed', [
+                    'form_id' => $form['id'],
+                    'status' => $response->status(),
+                    'body' => $response->body(),
+                ]);
             }
         }
-        return $response;
     }
-
 }
